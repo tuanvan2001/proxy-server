@@ -1,0 +1,14 @@
+[Unit]
+Description=proxy server
+After=network.target
+
+[Service]
+User=root
+Group=root
+WorkingDirectory=/root/proxy-server
+ExecStart=/root/proxy-server/app
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
