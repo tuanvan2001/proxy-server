@@ -156,18 +156,22 @@ func (s *ProxyServer) handleConnection(conn net.Conn) {
 	// Cleanup connection data when done
 	defer func() {
 		conn.Close()
-		// Remove connection from the map when done
+		// Lưu ý: Việc giảm số lượng kết nối đã được xử lý trong hàm proxyData
+		// Chỉ xóa kết nối khỏi map nếu chưa được xử lý bởi proxyData
 		s.connMutex.Lock()
-		username, exists := s.connections[clientAddr]
+		_, exists := s.connections[clientAddr]
 		if exists {
+			// Kết nối vẫn còn trong map, có thể do lỗi xảy ra trước khi proxyData được gọi
+			// hoặc proxyData không được gọi (ví dụ: lỗi xác thực)
+			username := s.connections[clientAddr]
 			// Decrease connection count for this user
 			s.userConnections[username]--
-			// s.Logger.Info("Connection closed, decreasing count", "username", username, "connections", s.userConnections[username])
+			s.Logger.Info("Connection closed in handleConnection, decreasing count", "username", username, "connections", s.userConnections[username])
 			if s.userConnections[username] <= 0 {
 				delete(s.userConnections, username)
 			}
+			delete(s.connections, clientAddr)
 		}
-		delete(s.connections, clientAddr)
 		s.connMutex.Unlock()
 	}()
 
@@ -505,12 +509,37 @@ func (s *ProxyServer) proxyData(client, target net.Conn) {
 	clientLimiter := rate.NewLimiter(rate.Limit(RATE_LIMIT), BURST_LIMIT)
 	targetLimiter := rate.NewLimiter(rate.Limit(RATE_LIMIT), BURST_LIMIT)
 
+	// Lấy thông tin kết nối của client để cập nhật số lượng kết nối khi đóng
+	clientAddr := client.RemoteAddr().String()
+	s.connMutex.RLock()
+	username, userExists := s.connections[clientAddr]
+	s.connMutex.RUnlock()
+
+	// Hàm giảm số lượng kết nối khi kết nối bị đóng
+	decreaseConnectionCount := func() {
+		if userExists {
+			s.connMutex.Lock()
+			// Kiểm tra lại vì có thể đã bị xóa bởi goroutine khác
+			if _, exists := s.connections[clientAddr]; exists {
+				// Giảm số lượng kết nối của user
+				s.userConnections[username]--
+				s.Logger.Info("Connection closed in proxyData, decreasing count", "username", username, "connections", s.userConnections[username])
+				if s.userConnections[username] <= 0 {
+					delete(s.userConnections, username)
+				}
+				delete(s.connections, clientAddr)
+			}
+			s.connMutex.Unlock()
+		}
+	}
+
 	wg := &sync.WaitGroup{}
 	wg.Add(2)
 
 	// Client -> Target
 	go func() {
 		defer wg.Done()
+		defer decreaseConnectionCount() // Đảm bảo giảm số lượng kết nối khi goroutine kết thúc
 		buf := make([]byte, 4096)
 		transferred := int64(0)
 
@@ -541,12 +570,13 @@ func (s *ProxyServer) proxyData(client, target net.Conn) {
 			}
 		}
 
-		// s.Logger.Info("Connection closed", "direction", "client->target", "bytes", transferred)
+		s.Logger.Info("Connection closed", "direction", "client->target", "bytes", transferred)
 	}()
 
 	// Target -> Client
 	go func() {
 		defer wg.Done()
+		defer decreaseConnectionCount() // Đảm bảo giảm số lượng kết nối khi goroutine kết thúc
 		buf := make([]byte, 4096)
 		transferred := int64(0)
 
@@ -577,7 +607,7 @@ func (s *ProxyServer) proxyData(client, target net.Conn) {
 			}
 		}
 
-		// s.Logger.Info("Connection closed", "direction", "target->client", "bytes", transferred)
+		s.Logger.Info("Connection closed", "direction", "target->client", "bytes", transferred)
 	}()
 
 	wg.Wait()
