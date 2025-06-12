@@ -2,7 +2,10 @@ package main
 
 import (
 	"context"
+	"crypto/md5"
+	"database/sql"
 	"encoding/binary"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -13,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	_ "github.com/go-sql-driver/mysql"
 	"golang.org/x/time/rate"
 )
 
@@ -47,24 +51,28 @@ const (
 	ADDRESS_TYPE_UNSUPPORTED = 0x08
 
 	// Rate limiting (100 KB/s)
-	RATE_LIMIT  = 100 * 1024 // bytes per second
-	BURST_LIMIT = 50 * 1024  // burst size
+	RATE_LIMIT  = 100 * 1024 * 1024 // bytes per second
+	BURST_LIMIT = 1024 * 1024       // burst size
 )
 
 // User credentials for authentication
-type Credentials struct {
-	Username string
-	Password string
+type User struct {
+	Username      string
+	Password      string
+	MaxConnection int
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
 }
 
 // ProxyServer represents our SOCKS5 proxy server
 type ProxyServer struct {
-	Addr        string
-	Logger      *slog.Logger
-	Credentials map[string]string
-	mutex       sync.RWMutex
-	connections map[string]string // Maps client address to authenticated username
-	connMutex   sync.RWMutex
+	Addr            string
+	Logger          *slog.Logger
+	DB              *sql.DB
+	mutex           sync.RWMutex
+	connections     map[string]string // Maps client address to authenticated username
+	userConnections map[string]int    // Maps username to number of active connections
+	connMutex       sync.RWMutex
 }
 
 // NewProxyServer creates a new SOCKS5 proxy server
@@ -91,16 +99,28 @@ func NewProxyServer(addr string) *ProxyServer {
 	logHandler := slog.NewTextHandler(logFile, logOpts)
 	logger := slog.New(logHandler)
 
+	// Connect to MySQL database
+	db, err := sql.Open("mysql", "root:Tuan123@tcp(127.0.0.1:3306)/proxy")
+	if err != nil {
+		logger.Error("Failed to connect to database", "error", err)
+		os.Exit(1)
+	}
+
+	// Test the connection
+	if err := db.Ping(); err != nil {
+		logger.Error("Failed to ping database", "error", err)
+		os.Exit(1)
+	}
+
+	logger.Info("Connected to MySQL database")
+
 	// Create server
 	return &ProxyServer{
-		Addr:   addr,
-		Logger: logger,
-		Credentials: map[string]string{
-			"user1": "password1", // Default credentials
-			"admin": "admin123",
-			"tuan":  "tuan123",
-		},
-		connections: make(map[string]string),
+		Addr:            addr,
+		Logger:          logger,
+		DB:              db,
+		connections:     make(map[string]string),
+		userConnections: make(map[string]int),
 	}
 }
 
@@ -111,6 +131,7 @@ func (s *ProxyServer) Start() error {
 		return err
 	}
 	defer listener.Close()
+	defer s.DB.Close()
 
 	s.Logger.Info("SOCKS5 proxy server started", "address", s.Addr)
 
@@ -134,6 +155,15 @@ func (s *ProxyServer) handleConnection(conn net.Conn) {
 		conn.Close()
 		// Remove connection from the map when done
 		s.connMutex.Lock()
+		username, exists := s.connections[clientAddr]
+		if exists {
+			// Decrease connection count for this user
+			s.userConnections[username]--
+			s.Logger.Info("Connection closed, decreasing count", "username", username, "connections", s.userConnections[username])
+			if s.userConnections[username] <= 0 {
+				delete(s.userConnections, username)
+			}
+		}
 		delete(s.connections, clientAddr)
 		s.connMutex.Unlock()
 	}()
@@ -198,6 +228,12 @@ func (s *ProxyServer) handleHandshake(conn net.Conn) error {
 	return s.performAuth(conn)
 }
 
+// MD5Hash returns the MD5 hash of a string
+func MD5Hash(text string) string {
+	hash := md5.Sum([]byte(text))
+	return hex.EncodeToString(hash[:])
+}
+
 // performAuth handles username/password authentication
 func (s *ProxyServer) performAuth(conn net.Conn) error {
 	// Read auth version
@@ -237,23 +273,43 @@ func (s *ProxyServer) performAuth(conn net.Conn) error {
 	// Verify credentials
 	usernameStr := string(username)
 	passwordStr := string(password)
+	hashedPassword := MD5Hash(passwordStr)
 
-	s.mutex.RLock()
-	expectedPassword, exists := s.Credentials[usernameStr]
-	s.mutex.RUnlock()
+	// Query the database for user credentials
+	var user User
+	query := "SELECT username, password, maxConnection FROM user WHERE username = ?"
+	err := s.DB.QueryRow(query, usernameStr).Scan(&user.Username, &user.Password, &user.MaxConnection)
 
 	var authStatus byte = 0x01 // Failure by default
-	if exists && expectedPassword == passwordStr {
+	if err == nil && user.Password == hashedPassword {
+		// Check if user has reached max connections
+		clientAddr := conn.RemoteAddr().String()
+		s.connMutex.Lock()
+		currentConnections := s.userConnections[usernameStr]
+
+		if currentConnections >= user.MaxConnection {
+			s.Logger.Warn("Max connections reached", "username", usernameStr,
+				"current", currentConnections, "max", user.MaxConnection)
+			s.connMutex.Unlock()
+
+			// Send auth failure response
+			response := []byte{0x01, 0x01} // Auth failure
+			conn.Write(response)
+			return errors.New("max connections reached")
+		}
+
+		// Authentication successful
 		authStatus = 0x00 // Success
 		s.Logger.Info("Authentication successful", "username", usernameStr)
 
-		// Store the authenticated username for this connection
-		clientAddr := conn.RemoteAddr().String()
-		s.connMutex.Lock()
+		// Store the authenticated username for this connection and increment counter
 		s.connections[clientAddr] = usernameStr
+		s.userConnections[usernameStr] = currentConnections + 1
+		s.Logger.Info("Connection established", "username", usernameStr,
+			"connections", s.userConnections[usernameStr], "max", user.MaxConnection)
 		s.connMutex.Unlock()
 	} else {
-		s.Logger.Warn("Authentication failed", "username", usernameStr)
+		s.Logger.Warn("Authentication failed", "username", usernameStr, "error", err)
 	}
 
 	// Send auth response
