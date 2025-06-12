@@ -1,3 +1,4 @@
+CREATE DATABASE proxy;
 -- Tạo bảng user với các trường yêu cầu
 CREATE TABLE IF NOT EXISTS `user` (
   `username` VARCHAR(50) NOT NULL,
@@ -10,6 +11,4 @@ CREATE TABLE IF NOT EXISTS `user` (
 
 -- Thêm một số dữ liệu mẫu
 INSERT INTO `user` (`username`, `password`, `maxConnection`) VALUES
-('user1', MD5('password1'), 5),
-('admin', MD5('admin123'), 10),
-('tuan', MD5('tuan123'), 8);
+('admin', MD5('Tuandev2001'), 1);

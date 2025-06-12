@@ -50,9 +50,12 @@ const (
 	COMMAND_NOT_SUPPORTED    = 0x07
 	ADDRESS_TYPE_UNSUPPORTED = 0x08
 
-	// Rate limiting (100 KB/s)
-	RATE_LIMIT  = 100 * 1024 * 1024 // bytes per second
-	BURST_LIMIT = 1024 * 1024       // burst size
+	// Rate limiting (100 KB/s) - Tạm thời vô hiệu hóa giới hạn băng thông
+	// RATE_LIMIT  = 100 * 1024 * 1024 // bytes per second
+	// BURST_LIMIT = 1024 * 1024       // burst size
+	// Đặt giá trị rất cao để vô hiệu hóa giới hạn băng thông
+	RATE_LIMIT  = 1000 * 1024 * 1024 // 1 GB/s - thực tế là không giới hạn
+	BURST_LIMIT = 100 * 1024 * 1024  // 100 MB burst - thực tế là không giới hạn
 )
 
 // User credentials for authentication
@@ -159,7 +162,7 @@ func (s *ProxyServer) handleConnection(conn net.Conn) {
 		if exists {
 			// Decrease connection count for this user
 			s.userConnections[username]--
-			s.Logger.Info("Connection closed, decreasing count", "username", username, "connections", s.userConnections[username])
+			// s.Logger.Info("Connection closed, decreasing count", "username", username, "connections", s.userConnections[username])
 			if s.userConnections[username] <= 0 {
 				delete(s.userConnections, username)
 			}
@@ -300,13 +303,13 @@ func (s *ProxyServer) performAuth(conn net.Conn) error {
 
 		// Authentication successful
 		authStatus = 0x00 // Success
-		s.Logger.Info("Authentication successful", "username", usernameStr)
+		// s.Logger.Info("Authentication successful", "username", usernameStr)
 
 		// Store the authenticated username for this connection and increment counter
 		s.connections[clientAddr] = usernameStr
 		s.userConnections[usernameStr] = currentConnections + 1
-		s.Logger.Info("Connection established", "username", usernameStr,
-			"connections", s.userConnections[usernameStr], "max", user.MaxConnection)
+		// s.Logger.Info("Connection established", "username", usernameStr,
+		// 	"connections", s.userConnections[usernameStr], "max", user.MaxConnection)
 		s.connMutex.Unlock()
 	} else {
 		s.Logger.Warn("Authentication failed", "username", usernameStr, "error", err)
@@ -418,7 +421,7 @@ func (s *ProxyServer) handleRequest(conn net.Conn) error {
 
 	// Connect to the destination
 	dstAddrPort := fmt.Sprintf("%s:%d", dstAddr, dstPort)
-	s.Logger.Info("Connecting to destination", "address", dstAddrPort)
+	// s.Logger.Info("Connecting to destination", "address", dstAddrPort)
 
 	dstConn, err := net.DialTimeout("tcp", dstAddrPort, 10*time.Second)
 	if err != nil {
@@ -450,7 +453,7 @@ func (s *ProxyServer) handleRequest(conn net.Conn) error {
 	s.sendReply(conn, SUCCEEDED, localAddr)
 
 	// Start proxying data
-	s.Logger.Info("Connection established", "source", conn.RemoteAddr(), "destination", dstAddrPort)
+	// s.Logger.Info("Connection established", "source", conn.RemoteAddr(), "destination", dstAddrPort)
 	s.proxyData(conn, dstConn)
 
 	return nil
@@ -496,9 +499,9 @@ func (s *ProxyServer) sendReply(conn net.Conn, replyCode byte, bindAddr *net.TCP
 	return err
 }
 
-// proxyData handles bidirectional data transfer with rate limiting
+// proxyData handles bidirectional data transfer with rate limiting (hiện đã vô hiệu hóa giới hạn băng thông)
 func (s *ProxyServer) proxyData(client, target net.Conn) {
-	// Create rate limiters for both directions
+	// Create rate limiters for both directions (hiện đã đặt giá trị rất cao để vô hiệu hóa giới hạn)
 	clientLimiter := rate.NewLimiter(rate.Limit(RATE_LIMIT), BURST_LIMIT)
 	targetLimiter := rate.NewLimiter(rate.Limit(RATE_LIMIT), BURST_LIMIT)
 
@@ -514,7 +517,8 @@ func (s *ProxyServer) proxyData(client, target net.Conn) {
 		for {
 			n, err := client.Read(buf)
 			if n > 0 {
-				// Apply rate limiting
+				// Apply rate limiting (hiện đã vô hiệu hóa)
+				// Giữ lại code rate limiting nhưng đã đặt giá trị RATE_LIMIT và BURST_LIMIT rất cao
 				if err := clientLimiter.WaitN(context.Background(), n); err != nil {
 					s.Logger.Error("Rate limit error", "direction", "client->target", "error", err)
 					break
@@ -537,7 +541,7 @@ func (s *ProxyServer) proxyData(client, target net.Conn) {
 			}
 		}
 
-		s.Logger.Info("Connection closed", "direction", "client->target", "bytes", transferred)
+		// s.Logger.Info("Connection closed", "direction", "client->target", "bytes", transferred)
 	}()
 
 	// Target -> Client
@@ -549,7 +553,8 @@ func (s *ProxyServer) proxyData(client, target net.Conn) {
 		for {
 			n, err := target.Read(buf)
 			if n > 0 {
-				// Apply rate limiting
+				// Apply rate limiting (hiện đã vô hiệu hóa)
+				// Giữ lại code rate limiting nhưng đã đặt giá trị RATE_LIMIT và BURST_LIMIT rất cao
 				if err := targetLimiter.WaitN(context.Background(), n); err != nil {
 					s.Logger.Error("Rate limit error", "direction", "target->client", "error", err)
 					break
@@ -572,7 +577,7 @@ func (s *ProxyServer) proxyData(client, target net.Conn) {
 			}
 		}
 
-		s.Logger.Info("Connection closed", "direction", "target->client", "bytes", transferred)
+		// s.Logger.Info("Connection closed", "direction", "target->client", "bytes", transferred)
 	}()
 
 	wg.Wait()

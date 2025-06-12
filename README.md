@@ -8,7 +8,7 @@
 - **Xác thực username/password qua MySQL**: Hỗ trợ phương thức xác thực 0x02 theo RFC 1929 với dữ liệu người dùng từ MySQL
 - **Giới hạn số lượng kết nối đồng thời**: Mỗi người dùng có giới hạn số kết nối tối đa riêng
 - **Phân giải tên miền**: Xử lý tên miền (ATYP=3) thông qua resolver DNS của Go
-- **Giới hạn tốc độ mạng**: Sử dụng gói golang.org/x/time/rate để giới hạn băng thông (100 KB/s)
+- ~~**Giới hạn tốc độ mạng**: Sử dụng gói golang.org/x/time/rate để giới hạn băng thông (100 KB/s)~~ (Đã vô hiệu hóa)
 - **Logging chi tiết**: Sử dụng gói log/slog để ghi log các sự kiện xác thực và kết nối
 
 ## Cài đặt
@@ -116,12 +116,14 @@ Bạn có thể cấu hình các ứng dụng hoặc trình duyệt để sử d
 
 ## Giới hạn tốc độ
 
-Proxy server giới hạn tốc độ truyền dữ liệu ở mức 100 KB/s cho mỗi kết nối. Bạn có thể điều chỉnh giới hạn này bằng cách thay đổi các hằng số sau trong file `main.go`:
+~~Proxy server giới hạn tốc độ truyền dữ liệu ở mức 100 KB/s cho mỗi kết nối.~~ Tính năng giới hạn tốc độ đã được vô hiệu hóa. Các hằng số trong file `main.go` đã được đặt ở mức rất cao để loại bỏ giới hạn băng thông:
 
 ```go
-RATE_LIMIT = 100 * 1024 // bytes per second
-BURST_LIMIT = 50 * 1024 // burst size
+RATE_LIMIT  = 1000 * 1024 * 1024 // 1 GB/s - thực tế là không giới hạn
+BURST_LIMIT = 100 * 1024 * 1024  // 100 MB burst - thực tế là không giới hạn
 ```
+
+Nếu muốn kích hoạt lại giới hạn tốc độ, bạn có thể bỏ comment và điều chỉnh các giá trị này về mức thấp hơn.
 
 ## Cấu trúc mã nguồn
 
@@ -130,7 +132,7 @@ BURST_LIMIT = 50 * 1024 // burst size
   - Xác thực username/password qua MySQL
   - Giới hạn số lượng kết nối đồng thời
   - Phân giải tên miền
-  - Giới hạn tốc độ
+  - ~~Giới hạn tốc độ~~ (Đã vô hiệu hóa)
   - Logging
 - **table.sql**: Script SQL để tạo bảng user và dữ liệu mẫu
 
