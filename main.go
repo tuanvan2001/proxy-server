@@ -12,7 +12,6 @@ import (
 	"log/slog"
 	"net"
 	"os"
-	"path/filepath"
 	"sync"
 	"time"
 
@@ -80,26 +79,11 @@ type ProxyServer struct {
 
 // NewProxyServer creates a new SOCKS5 proxy server
 func NewProxyServer(addr string) *ProxyServer {
-	// Setup logger
-	logDir := "log"
-	if err := os.MkdirAll(logDir, 0755); err != nil {
-		slog.Default().Error("Failed to create log directory", "error", err)
-		os.Exit(1)
-	}
-
-	logFileName := fmt.Sprintf("access_%s.log", time.Now().Format("2006_01_02"))
-	logFilePath := filepath.Join(logDir, logFileName)
-
-	logFile, err := os.OpenFile(logFilePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-	if err != nil {
-		slog.Default().Error("Failed to open log file", "path", logFilePath, "error", err)
-		os.Exit(1)
-	}
-
+	// Setup logger - chỉ log ra console
 	logOpts := &slog.HandlerOptions{
 		Level: slog.LevelDebug,
 	}
-	logHandler := slog.NewTextHandler(logFile, logOpts)
+	logHandler := slog.NewTextHandler(os.Stdout, logOpts)
 	logger := slog.New(logHandler)
 
 	// Connect to MySQL database
@@ -136,7 +120,7 @@ func (s *ProxyServer) Start() error {
 	defer listener.Close()
 	defer s.DB.Close()
 
-	s.Logger.Info("SOCKS5 proxy server started", "address", s.Addr)
+	// s.Logger.Info("SOCKS5 proxy server started", "address", s.Addr)
 
 	for {
 		conn, err := listener.Accept()
@@ -166,7 +150,7 @@ func (s *ProxyServer) handleConnection(conn net.Conn) {
 			username := s.connections[clientAddr]
 			// Decrease connection count for this user
 			s.userConnections[username]--
-			s.Logger.Info("Connection closed in handleConnection, decreasing count", "username", username, "connections", s.userConnections[username])
+			// s.Logger.Info("Connection closed in handleConnection, decreasing count", "username", username, "connections", s.userConnections[username])
 			if s.userConnections[username] <= 0 {
 				delete(s.userConnections, username)
 			}
@@ -175,7 +159,7 @@ func (s *ProxyServer) handleConnection(conn net.Conn) {
 		s.connMutex.Unlock()
 	}()
 
-	s.Logger.Info("New connection", "client", clientAddr)
+	// s.Logger.Info("New connection", "client", clientAddr)
 
 	// Perform SOCKS5 handshake
 	if err := s.handleHandshake(conn); err != nil {
@@ -316,7 +300,7 @@ func (s *ProxyServer) performAuth(conn net.Conn) error {
 		// 	"connections", s.userConnections[usernameStr], "max", user.MaxConnection)
 		s.connMutex.Unlock()
 	} else {
-		s.Logger.Warn("Authentication failed", "username", usernameStr, "error", err)
+		// s.Logger.Warn("Authentication failed", "username", usernameStr, "error", err)
 	}
 
 	// Send auth response
@@ -402,13 +386,13 @@ func (s *ProxyServer) handleRequest(conn net.Conn) error {
 		// Get the authenticated username for this connection
 		clientAddr := conn.RemoteAddr().String()
 		s.connMutex.RLock()
-		username, exists := s.connections[clientAddr]
+		_, exists := s.connections[clientAddr]
 		s.connMutex.RUnlock()
 
 		if exists {
-			s.Logger.Info("Domain resolved", "domain", dstAddr, "ip", dstIP.String(), "user", username)
+			// s.Logger.Info("Domain resolved", "domain", dstAddr, "ip", dstIP.String(), "user", username)
 		} else {
-			s.Logger.Info("Domain resolved", "domain", dstAddr, "ip", dstIP.String(), "user", "unknown")
+			// s.Logger.Info("Domain resolved", "domain", dstAddr, "ip", dstIP.String(), "user", "unknown")
 		}
 
 	default:
@@ -523,7 +507,7 @@ func (s *ProxyServer) proxyData(client, target net.Conn) {
 			if _, exists := s.connections[clientAddr]; exists {
 				// Giảm số lượng kết nối của user
 				s.userConnections[username]--
-				s.Logger.Info("Connection closed in proxyData, decreasing count", "username", username, "connections", s.userConnections[username])
+				// s.Logger.Info("Connection closed in proxyData, decreasing count", "username", username, "connections", s.userConnections[username])
 				if s.userConnections[username] <= 0 {
 					delete(s.userConnections, username)
 				}
@@ -570,7 +554,7 @@ func (s *ProxyServer) proxyData(client, target net.Conn) {
 			}
 		}
 
-		s.Logger.Info("Connection closed", "direction", "client->target", "bytes", transferred)
+		// s.Logger.Info("Connection closed", "direction", "client->target", "bytes", transferred)
 	}()
 
 	// Target -> Client
@@ -607,7 +591,7 @@ func (s *ProxyServer) proxyData(client, target net.Conn) {
 			}
 		}
 
-		s.Logger.Info("Connection closed", "direction", "target->client", "bytes", transferred)
+		// s.Logger.Info("Connection closed", "direction", "target->client", "bytes", transferred)
 	}()
 
 	wg.Wait()
