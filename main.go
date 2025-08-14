@@ -57,6 +57,15 @@ const (
 	BURST_LIMIT = 100 * 1024 * 1024  // 100 MB burst - thực tế là không giới hạn
 )
 
+// getEnv returns the value of the environment variable named by the key.
+// It returns the fallback value if the variable is not set.
+func getEnv(key, fallback string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
+	}
+	return fallback
+}
+
 // User credentials for authentication
 type User struct {
 	Username      string
@@ -86,8 +95,15 @@ func NewProxyServer(addr string) *ProxyServer {
 	logHandler := slog.NewTextHandler(os.Stdout, logOpts)
 	logger := slog.New(logHandler)
 
-	// Connect to MySQL database
-	db, err := sql.Open("mysql", "root:Tuan123@tcp(127.0.0.1:3306)/proxy")
+	// Connect to MySQL database using environment variables
+	dbUser := getEnv("DB_USER", "root")
+	dbPassword := getEnv("DB_PASSWORD", "Tuan123")
+	dbHost := getEnv("DB_HOST", "127.0.0.1")
+	dbPort := getEnv("DB_PORT", "3306")
+	dbName := getEnv("DB_NAME", "proxy")
+	dbDriver := getEnv("DB_DRIVER", "mysql")
+	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s", dbUser, dbPassword, dbHost, dbPort, dbName)
+	db, err := sql.Open(dbDriver, dsn)
 	if err != nil {
 		logger.Error("Failed to connect to database", "error", err)
 		os.Exit(1)

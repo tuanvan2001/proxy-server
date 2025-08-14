@@ -33,12 +33,29 @@ go run main.go
 
 ## Cấu hình
 
-Cấu hình của API được lưu trong file `config/config.go`. Bạn có thể chỉnh sửa các thông số sau:
+Cấu hình của API được lấy từ các biến môi trường sau (giá trị mặc định trong ngoặc):
 
-- `ServerPort`: Cổng mà API server sẽ lắng nghe (mặc định: 8080)
-- `DBDriver`, `DBUser`, `DBPassword`, `DBName`, `DBHost`, `DBPort`: Thông tin kết nối đến cơ sở dữ liệu MySQL
-- `JWTSecret`, `JWTExpiration`: Cấu hình JWT
-- `AdminUsers`: Danh sách các tài khoản được phép sử dụng API
+| Biến | Mặc định | Mô tả |
+|------|----------|------|
+| `SERVER_PORT` | `8080` | Cổng lắng nghe của API |
+| `DB_DRIVER` | `mysql` | Loại cơ sở dữ liệu |
+| `DB_USER` | `root` | Tên người dùng cơ sở dữ liệu |
+| `DB_PASSWORD` | `Tuan123` | Mật khẩu cơ sở dữ liệu |
+| `DB_NAME` | `proxy` | Tên cơ sở dữ liệu |
+| `DB_HOST` | `127.0.0.1` | Địa chỉ máy chủ cơ sở dữ liệu |
+| `DB_PORT` | `3306` | Cổng cơ sở dữ liệu |
+| `JWT_SECRET` | `Oegjsc1029384756` | Khóa bí mật ký JWT |
+| `JWT_EXPIRATION` | `24` | Thời hạn token (giờ) |
+
+Ví dụ thiết lập trước khi chạy API server:
+
+```bash
+export DB_USER=myuser
+export DB_PASSWORD=mypass
+export JWT_SECRET=mysecret
+```
+
+`AdminUsers` vẫn được định nghĩa trong `config/config.go`.
 
 ## API Endpoints
 
