@@ -68,11 +68,26 @@ server := NewProxyServer(":1080")
 
 ### Kết nối MySQL
 
-Chỉnh sửa thông tin kết nối MySQL trong file `main.go`:
+Server đọc cấu hình kết nối cơ sở dữ liệu từ các biến môi trường sau (giá trị mặc định trong ngoặc):
 
-```go
-db, err := sql.Open("mysql", "root:password@tcp(127.0.0.1:3306)/proxy_server")
+| Biến | Mặc định |
+|------|----------|
+| `DB_DRIVER` | `mysql` |
+| `DB_USER` | `root` |
+| `DB_PASSWORD` | `Tuan123` |
+| `DB_HOST` | `127.0.0.1` |
+| `DB_PORT` | `3306` |
+| `DB_NAME` | `proxy` |
+
+Ví dụ thiết lập trước khi chạy server:
+
+```bash
+export DB_USER=myuser
+export DB_PASSWORD=mypass
+export DB_NAME=proxy
 ```
+
+Server sẽ tự động sử dụng các giá trị này khi khởi động.
 
 ## Quản lý người dùng
 
